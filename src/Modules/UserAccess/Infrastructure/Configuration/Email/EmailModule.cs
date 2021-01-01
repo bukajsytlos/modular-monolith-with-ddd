@@ -1,4 +1,5 @@
 ﻿using Autofac;
+using CompanyName.MyMeetings.BuildingBlocks.Application.Emails;
 using CompanyName.MyMeetings.BuildingBlocks.Infrastructure.Emails;
 
 namespace CompanyName.MyMeetings.Modules.UserAccess.Infrastructure.Configuration.Email
@@ -9,7 +10,7 @@ namespace CompanyName.MyMeetings.Modules.UserAccess.Infrastructure.Configuration
         private readonly EmailsConfiguration _configuration;
 
         public EmailModule(
-            EmailsConfiguration configuration, 
+            EmailsConfiguration configuration,
             IEmailSender emailSender)
         {
             _configuration = configuration;

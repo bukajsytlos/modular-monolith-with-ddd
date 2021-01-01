@@ -26,9 +26,10 @@ namespace CompanyNames.MyMeetings.Modules.UserAccess.IntegrationTests.SeedWork
             return messages.AsList();
         }
 
-        public static T Deserialize<T>(OutboxMessageDto message) where T : class, INotification
+        public static T Deserialize<T>(OutboxMessageDto message)
+            where T : class, INotification
         {
-            Type type = Assembly.GetAssembly(typeof(NewUserRegisteredNotification)).GetType(message.Type);
+            Type type = Assembly.GetAssembly(typeof(NewUserRegisteredNotification)).GetType(typeof(T).FullName);
             return JsonConvert.DeserializeObject(message.Data, type) as T;
         }
     }

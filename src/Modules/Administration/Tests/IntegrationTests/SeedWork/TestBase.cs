@@ -3,7 +3,9 @@ using System.Data;
 using System.Data.SqlClient;
 using System.Linq;
 using System.Threading.Tasks;
-using CompanyName.MyMeetings.BuildingBlocks.Infrastructure.Emails;
+using CompanyName.MyMeetings.BuildingBlocks.Application.Emails;
+using CompanyName.MyMeetings.BuildingBlocks.Domain;
+using CompanyName.MyMeetings.BuildingBlocks.IntegrationTests;
 using CompanyName.MyMeetings.Modules.Administration.Application.Contracts;
 using CompanyName.MyMeetings.Modules.Administration.Infrastructure;
 using CompanyName.MyMeetings.Modules.Administration.Infrastructure.Configuration;
@@ -17,23 +19,22 @@ namespace CompanyName.MyMeetings.Modules.Administration.IntegrationTests.SeedWor
 {
     public class TestBase
     {
-        protected string ConnectionString;
+        protected string ConnectionString { get; private set; }
 
-        protected ILogger Logger;
+        protected ILogger Logger { get; private set; }
 
-        protected IAdministrationModule AdministrationModule;
+        protected IAdministrationModule AdministrationModule { get; private set; }
 
-        protected IEmailSender EmailSender;
+        protected IEmailSender EmailSender { get; private set; }
 
-        protected ExecutionContextMock ExecutionContext;
-
+        protected ExecutionContextMock ExecutionContext { get; private set; }
 
         [SetUp]
         public async Task BeforeEachTest()
         {
             const string connectionStringEnvironmentVariable =
                 "ASPNETCORE_MyMeetings_IntegrationTests_ConnectionString";
-            ConnectionString = Environment.GetEnvironmentVariable(connectionStringEnvironmentVariable, EnvironmentVariableTarget.Machine);
+            ConnectionString = EnvironmentVariablesProvider.GetVariable(connectionStringEnvironmentVariable);
             if (ConnectionString == null)
             {
                 throw new ApplicationException(
@@ -52,9 +53,32 @@ namespace CompanyName.MyMeetings.Modules.Administration.IntegrationTests.SeedWor
             AdministrationStartup.Initialize(
                 ConnectionString,
                 ExecutionContext,
-                Logger);
+                Logger,
+                null);
 
             AdministrationModule = new AdministrationModule();
+        }
+
+        protected async Task<T> GetLastOutboxMessage<T>()
+            where T : class, INotification
+        {
+            using (var connection = new SqlConnection(ConnectionString))
+            {
+                var messages = await OutboxMessagesHelper.GetOutboxMessages(connection);
+
+                return OutboxMessagesHelper.Deserialize<T>(messages.Last());
+            }
+        }
+
+        protected static void AssertBrokenRule<TRule>(AsyncTestDelegate testDelegate)
+            where TRule : class, IBusinessRule
+        {
+            var message = $"Expected {typeof(TRule).Name} broken rule";
+            var businessRuleValidationException = Assert.CatchAsync<BusinessRuleValidationException>(testDelegate, message);
+            if (businessRuleValidationException != null)
+            {
+                Assert.That(businessRuleValidationException.BrokenRule, Is.TypeOf<TRule>(), message);
+            }
         }
 
         private static async Task ClearDatabase(IDbConnection connection)
@@ -66,16 +90,6 @@ namespace CompanyName.MyMeetings.Modules.Administration.IntegrationTests.SeedWor
                                "DELETE FROM [administration].[Members] ";
 
             await connection.ExecuteScalarAsync(sql);
-        }
-
-        protected async Task<T> GetLastOutboxMessage<T>() where T : class, INotification
-        {
-            using (var connection = new SqlConnection(ConnectionString))
-            {
-                var messages = await OutboxMessagesHelper.GetOutboxMessages(connection);
-
-                return OutboxMessagesHelper.Deserialize<T>(messages.Last());
-            }
         }
     }
 }

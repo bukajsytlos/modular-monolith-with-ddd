@@ -3,14 +3,14 @@ using System.Data;
 using System.Data.SqlClient;
 using System.Linq;
 using System.Threading.Tasks;
+using CompanyName.MyMeetings.BuildingBlocks.Application.Emails;
 using CompanyName.MyMeetings.BuildingBlocks.Infrastructure.Emails;
+using CompanyName.MyMeetings.BuildingBlocks.IntegrationTests;
 using CompanyName.MyMeetings.Modules.UserAccess.Application.Contracts;
-using CompanyName.MyMeetings.Modules.UserAccess.Domain.Users;
 using CompanyName.MyMeetings.Modules.UserAccess.Infrastructure;
 using CompanyName.MyMeetings.Modules.UserAccess.Infrastructure.Configuration;
 using Dapper;
 using MediatR;
-using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using NUnit.Framework;
 using Serilog;
@@ -19,21 +19,20 @@ namespace CompanyNames.MyMeetings.Modules.UserAccess.IntegrationTests.SeedWork
 {
     public class TestBase
     {
-        protected string ConnectionString;
+        protected string ConnectionString { get; private set; }
 
-        protected ILogger Logger;
+        protected ILogger Logger { get; private set; }
 
-        protected IUserAccessModule UserAccessModule;
+        protected IUserAccessModule UserAccessModule { get; private set; }
 
-        protected IEmailSender EmailSender;
-
+        protected IEmailSender EmailSender { get; private set; }
 
         [SetUp]
         public async Task BeforeEachTest()
         {
             const string connectionStringEnvironmentVariable =
                 "ASPNETCORE_MyMeetings_IntegrationTests_ConnectionString";
-            ConnectionString = Environment.GetEnvironmentVariable(connectionStringEnvironmentVariable, EnvironmentVariableTarget.Machine);
+            ConnectionString = EnvironmentVariablesProvider.GetVariable(connectionStringEnvironmentVariable);
             if (ConnectionString == null)
             {
                 throw new ApplicationException(
@@ -59,6 +58,17 @@ namespace CompanyNames.MyMeetings.Modules.UserAccess.IntegrationTests.SeedWork
             UserAccessModule = new UserAccessModule();
         }
 
+        protected async Task<T> GetLastOutboxMessage<T>()
+            where T : class, INotification
+        {
+            using (var connection = new SqlConnection(ConnectionString))
+            {
+                var messages = await OutboxMessagesHelper.GetOutboxMessages(connection);
+
+                return OutboxMessagesHelper.Deserialize<T>(messages.Last());
+            }
+        }
+
         private static async Task ClearDatabase(IDbConnection connection)
         {
             const string sql = "DELETE FROM [users].[InboxMessages] " +
@@ -70,17 +80,7 @@ namespace CompanyNames.MyMeetings.Modules.UserAccess.IntegrationTests.SeedWork
                                "DELETE FROM [users].[UserRoles] " +
                                "DELETE FROM [users].[Permissions] ";
 
-           await connection.ExecuteScalarAsync(sql);
-        }
-
-        protected async Task<T> GetLastOutboxMessage<T>() where T : class, INotification
-        {
-            using (var connection = new SqlConnection(ConnectionString))
-            {
-                var messages = await OutboxMessagesHelper.GetOutboxMessages(connection);
-
-                return OutboxMessagesHelper.Deserialize<T>(messages.Last());
-            }
+            await connection.ExecuteScalarAsync(sql);
         }
     }
 }

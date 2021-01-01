@@ -1,6 +1,6 @@
 ﻿using System;
 using System.Threading.Tasks;
-using CompanyName.MyMeetings.BuildingBlocks.Infrastructure.Emails;
+using CompanyName.MyMeetings.BuildingBlocks.Application.Emails;
 using CompanyName.MyMeetings.Modules.UserAccess.Application.UserRegistrations.SendUserRegistrationConfirmationEmail;
 using CompanyName.MyMeetings.Modules.UserAccess.Domain.UserRegistrations;
 using CompanyNames.MyMeetings.Modules.UserAccess.IntegrationTests.SeedWork;
@@ -17,16 +17,19 @@ namespace CompanyNames.MyMeetings.Modules.UserAccess.IntegrationTests.UserRegist
         {
             var registrationId = Guid.NewGuid();
 
+            var confirmLink = "confirmLink/";
             await UserAccessModule.ExecuteCommandAsync(new SendUserRegistrationConfirmationEmailCommand(
                 Guid.NewGuid(),
-                new UserRegistrationId(registrationId), 
-                UserRegistrationSampleData.Email));
-
-            var email = new EmailMessage(UserRegistrationSampleData.Email, 
+                new UserRegistrationId(registrationId),
+                UserRegistrationSampleData.Email,
+                confirmLink));
+            string link = $"<a href=\"{confirmLink}{registrationId}\">link</a>";
+            var content = $"Welcome to MyMeetings application! Please confirm your registration using this {link}.";
+            var email = new EmailMessage(
+                UserRegistrationSampleData.Email,
                 "MyMeetings - Please confirm your registration",
-                "This should be link to confirmation page. For now, please execute HTTP request " +
-                $"PATCH http://localhost:5000/userAccess/userRegistrations/{registrationId}/confirm");
-            
+                content);
+
             EmailSender.Received(Quantity.Exactly(1)).SendEmail(email);
         }
     }

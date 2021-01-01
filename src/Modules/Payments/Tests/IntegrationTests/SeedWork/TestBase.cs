@@ -1,11 +1,15 @@
-﻿using System;
+using System;
 using System.Data;
 using System.Data.SqlClient;
 using System.Linq;
 using System.Threading.Tasks;
+using CompanyName.MyMeetings.BuildingBlocks.Application.Emails;
 using CompanyName.MyMeetings.BuildingBlocks.Infrastructure.Emails;
 using CompanyName.MyMeetings.BuildingBlocks.Infrastructure.EventBus;
+using CompanyName.MyMeetings.BuildingBlocks.IntegrationTests;
+using CompanyName.MyMeetings.BuildingBlocks.IntegrationTests.Probing;
 using CompanyName.MyMeetings.Modules.Payments.Application.Contracts;
+using CompanyName.MyMeetings.Modules.Payments.Domain.SeedWork;
 using CompanyName.MyMeetings.Modules.Payments.Infrastructure;
 using CompanyName.MyMeetings.Modules.Payments.Infrastructure.Configuration;
 using Dapper;
@@ -18,25 +22,26 @@ namespace CompanyName.MyMeetings.Modules.Payments.IntegrationTests.SeedWork
 {
     public class TestBase
     {
-        protected string ConnectionString;
+        protected string ConnectionString { get; private set; }
 
-        protected ILogger Logger;
+        protected ILogger Logger { get; private set; }
 
-        protected IPaymentsModule PaymentsModule;
+        protected IPaymentsModule PaymentsModule { get; private set; }
 
-        protected IEmailSender EmailSender;
+        protected IEmailSender EmailSender { get; private set; }
 
-        protected EventsBusMock EventsBus;
+        protected EmailsConfiguration EmailsConfiguration { get; private set; }
 
-        protected ExecutionContextMock ExecutionContext;
+        protected EventsBusMock EventsBus { get; private set; }
 
+        protected ExecutionContextMock ExecutionContext { get; private set; }
 
         [SetUp]
         public async Task BeforeEachTest()
         {
             const string connectionStringEnvironmentVariable =
                 "ASPNETCORE_MyMeetings_IntegrationTests_ConnectionString";
-            ConnectionString = Environment.GetEnvironmentVariable(connectionStringEnvironmentVariable, EnvironmentVariableTarget.Machine);
+            ConnectionString = EnvironmentVariablesProvider.GetVariable(connectionStringEnvironmentVariable);
             if (ConnectionString == null)
             {
                 throw new ApplicationException(
@@ -50,33 +55,38 @@ namespace CompanyName.MyMeetings.Modules.Payments.IntegrationTests.SeedWork
 
             Logger = Substitute.For<ILogger>();
             EmailSender = Substitute.For<IEmailSender>();
+            EmailsConfiguration = new EmailsConfiguration("from@email.com");
             EventsBus = new EventsBusMock();
             ExecutionContext = new ExecutionContextMock(Guid.NewGuid());
-            
+
             PaymentsStartup.Initialize(
                 ConnectionString,
                 ExecutionContext,
                 Logger,
+                EmailsConfiguration,
                 EventsBus,
-                false);
+                true);
 
             PaymentsModule = new PaymentsModule();
         }
 
-        private static async Task ClearDatabase(IDbConnection connection)
+        public static async Task<T> GetEventually<T>(IProbe<T> probe, int timeout)
+            where T : class
         {
-            const string sql = "DELETE FROM [payments].[InboxMessages] " +
-                               "DELETE FROM [payments].[InternalCommands] " +
-                               "DELETE FROM [payments].[OutboxMessages] " +
-                               "DELETE FROM [payments].[MeetingPayments] " +
-                               "DELETE FROM [payments].[MeetingGroupPayments] " +
-                               "DELETE FROM [payments].[MeetingGroupPaymentRegisters] " +
-                               "DELETE FROM [payments].[Payers] ";
+            var poller = new Poller(timeout);
 
-            await connection.ExecuteScalarAsync(sql);
+            return await poller.GetAsync(probe);
         }
 
-        protected async Task<T> GetLastOutboxMessage<T>() where T : class, INotification
+        [TearDown]
+        public void AfterEachTest()
+        {
+            PaymentsStartup.Stop();
+            SystemClock.Reset();
+        }
+
+        protected async Task<T> GetLastOutboxMessage<T>()
+            where T : class, INotification
         {
             using (var connection = new SqlConnection(ConnectionString))
             {
@@ -84,6 +94,30 @@ namespace CompanyName.MyMeetings.Modules.Payments.IntegrationTests.SeedWork
 
                 return OutboxMessagesHelper.Deserialize<T>(messages.Last());
             }
+        }
+
+        protected static async Task AssertEventually(IProbe probe, int timeout)
+        {
+            await new Poller(timeout).CheckAsync(probe);
+        }
+
+        private static async Task ClearDatabase(IDbConnection connection)
+        {
+            const string sql = "DELETE FROM [payments].[InboxMessages] " +
+                               "DELETE FROM [payments].[InternalCommands] " +
+                               "DELETE FROM [payments].[OutboxMessages] " +
+                               "DELETE FROM payments.Messages " +
+                               "DBCC CHECKIDENT ('payments.Messages', RESEED, 0); " +
+                               "DELETE FROM payments.Streams " +
+                               "DBCC CHECKIDENT ('payments.Streams', RESEED, 0); " +
+                               "DELETE FROM payments.SubscriptionDetails " +
+                               "DELETE FROM [payments].[SubscriptionCheckpoints] " +
+                               "DELETE FROM [payments].PriceListItems " +
+                               "DELETE FROM [payments].SubscriptionPayments " +
+                               "DELETE FROM [payments].MeetingFees " +
+                               "DELETE FROM [payments].[Payers] ";
+
+            await connection.ExecuteScalarAsync(sql);
         }
     }
 }
